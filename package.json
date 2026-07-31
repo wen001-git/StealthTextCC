@@ -1,0 +1,48 @@
+{
+  "name": "stealthtextcc",
+  "version": "0.1.0",
+  "description": "macOS 隐身浮层提词器：永远置顶，录屏时不可见（与 StealthText 区分）",
+  "main": "main.js",
+  "author": "stealthtextcc",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test tests/screen-protection.test.mjs",
+    "build:mac": "electron-builder --mac dir",
+    "build:mac:universal": "electron-builder --mac dir --x64 --arm64",
+    "build:win": "electron-builder --win zip",
+    "pack": "electron-builder --dir"
+  },
+  "devDependencies": {
+    "electron": "^28.3.3",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.stealthtextcc.app",
+    "productName": "StealthTextCC",
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "package.json",
+      "node_modules/koffi/**"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        "dir"
+      ],
+      "identity": null
+    },
+    "win": {
+      "target": [
+        "zip"
+      ],
+      "icon": null,
+      "artifactName": "StealthTextCC-${version}-${arch}.${ext}"
+    }
+  },
+  "dependencies": {
+    "koffi": "^3.1.4"
+  }
+}
