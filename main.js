@@ -14,7 +14,7 @@
 
 'use strict';
 
-const { app, BrowserWindow, Menu, ipcMain, globalShortcut, screen, shell } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, screen, shell } = require('electron');
 const path = require('node:path');
 
 const IS_MAC = process.platform === 'darwin';
@@ -208,14 +208,12 @@ function buildMenu() {
           label: '永远置顶',
           type: 'checkbox',
           checked: aot,
-          accelerator: 'CommandOrControl+Alt+P',
           click: (item) => toggleAlwaysOnTop(item.checked),
         },
         {
           label: captureProtectionLabel,
           type: 'checkbox',
           checked: contentProtected,
-          accelerator: 'CommandOrControl+Alt+S',
           click: (item) => {
             contentProtected = item.checked;
             if (win) setScreenCaptureProtection(win, contentProtected);
@@ -224,7 +222,6 @@ function buildMenu() {
         { type: 'separator' },
         {
           label: '显示/隐藏窗口',
-          accelerator: 'CommandOrControl+Alt+V',
           click: () => {
             if (!win) return;
             if (win.isVisible()) win.hide(); else { win.show(); win.focus(); }
@@ -292,7 +289,32 @@ ipcMain.on('toggle-aot', () => toggleAlwaysOnTop());
 ipcMain.on('get-aot', (e) => {
   e.returnValue = win ? win.isAlwaysOnTop() : true;
 });
-ipcMain.on('quit', () => app.quit());
+// 录屏保护切换（窗口内按钮）
+ipcMain.on('toggle-capture-protection', () => {
+  contentProtected = !contentProtected;
+  if (win) setScreenCaptureProtection(win, contentProtected);
+  win.webContents.send('capture-protection-changed', contentProtected);
+  buildMenu();
+});
+// 获取当前录屏保护状态
+ipcMain.on('get-capture-protection', (e) => {
+  e.returnValue = contentProtected;
+});
+// 显示/隐藏窗口
+ipcMain.on('toggle-visible', () => {
+  if (!win) return;
+  if (win.isVisible()) win.hide(); else { win.show(); win.focus(); }
+});
+ipcMain.on('quit', () => {
+  // 正常退出；若 2 秒内没完成（macOS 某些情况下会出现），强制终止进程
+  const forceTimer = setTimeout(() => {
+    console.warn('[Main] app.quit() 未在 2 秒内完成，强制退出');
+    app.exit(0);
+  }, 2000);
+
+  app.once('will-quit', () => clearTimeout(forceTimer));
+  app.quit();
+});
 ipcMain.on('center', () => {
   if (!win) return;
   const d = screen.getPrimaryDisplay().workArea;
@@ -318,19 +340,11 @@ ipcMain.on('get-platform', (e) => {
 
 // ---------- App 生命周期 ----------
 app.whenReady().then(() => {
-  if (IS_MAC) {
-    // 不在 dock 占位，纯菜单栏/小浮层工具
-    try { app.dock && app.dock.hide(); } catch (_) { /* 旧版 mac 没 dock 属性 */ }
-  }
+  // 在 Dock 显示图标，方便隐藏后通过 Dock 恢复；不再追求完全隐身
   createWindow();
   buildMenu();
 
-  // 全局热键
-  globalShortcut.register('CommandOrControl+Alt+P', () => toggleAlwaysOnTop());
-  globalShortcut.register('CommandOrControl+Alt+V', () => {
-    if (!win) return;
-    if (win.isVisible()) win.hide(); else { win.show(); win.focus(); }
-  });
+  // 本 App 不使用全局快捷键，避免与其他 App 冲突
 });
 
 app.on('second-instance', () => {
@@ -342,15 +356,17 @@ app.on('second-instance', () => {
 });
 
 app.on('window-all-closed', () => {
-  // macOS 习惯：即使所有窗口都关，也不退出 App（用户用 ⌘Q 才退）
-  // 但本工具只有一个浮层，窗口关就代表用户想退 —— 按 IS_MAC 区分
-  if (!IS_MAC) app.quit();
+  // 单窗口浮层工具：窗口关了就是用户想退出，macOS 也不例外
+  app.quit();
 });
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  if (BrowserWindow.getAllWindows().length === 0) {
+    createWindow();
+  } else if (win && !win.isVisible()) {
+    win.show();
+    win.focus();
+  }
 });
 
-app.on('will-quit', () => {
-  globalShortcut.unregisterAll();
-});
+// will-quit：无需清理（不再使用 globalShortcut）

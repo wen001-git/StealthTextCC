@@ -151,7 +151,7 @@ test('启动 + 渲染 + preload 桥接', async () => {
     const s = JSON.parse(r.result.result.value);
     assert.equal(s.hasApi, true, 'preload bridge missing');
     assert.deepEqual(s.apiKeys,
-      ['center', 'getAlwaysOnTop', 'getPlatform', 'moveBy', 'onAlwaysOnTopChanged', 'quit', 'resizeBy', 'toggleAlwaysOnTop']);
+      ['center', 'getAlwaysOnTop', 'getCaptureProtection', 'getPlatform', 'moveBy', 'onAlwaysOnTopChanged', 'onCaptureProtectionChanged', 'quit', 'resizeBy', 'toggleAlwaysOnTop', 'toggleCaptureProtection', 'toggleVisible']);
     assert.equal(s.bodyMode, 'edit');
     assert.equal(s.aotOn, true, 'default aot should be on');
     assert.equal(s.playLabel, '播放');
@@ -180,9 +180,20 @@ test('编辑 → 播放 → 滚到底自动暂停', async () => {
       returnByValue: true,
     });
 
-    // 按 Space 进入播放
-    await cdpCall(page, 'Input.dispatchKeyEvent', { type: 'keyDown', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 });
-    await cdpCall(page, 'Input.dispatchKeyEvent', { type: 'keyUp', key: ' ', code: 'Space', windowsVirtualKeyCode: 32 });
+    // 点击播放按钮进入播放
+    await cdpCall(page, 'Runtime.evaluate', {
+      expression: `(() => {
+        const c = document.getElementById('content');
+        // 用 execCommand 确保内容触发正确的编辑事件
+        c.focus();
+        document.execCommand('selectAll', false, null);
+        document.execCommand('insertText', false, '段1\\n\\n段2\\n\\n段3\\n\\n段4');
+        const btn = document.getElementById('btn-play');
+        if (btn) btn.click();
+        return true;
+      })()`,
+      returnByValue: true,
+    });
     await new Promise(r => setTimeout(r, 200));
 
     const mid = await cdpCall(page, 'Runtime.evaluate', {

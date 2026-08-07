@@ -8,8 +8,9 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test tests/screen-protection.test.mjs",
-    "build:mac": "electron-builder --mac dir",
-    "build:mac:universal": "electron-builder --mac dir --x64 --arm64",
+    "build:mac": "electron-builder --mac dir --arm64",
+    "build:mac:x64": "electron-builder --mac dir --x64",
+    "build:mac:universal": "npm run build:mac && npm run build:mac:x64",
     "build:win": "electron-builder --win zip",
     "pack": "electron-builder --dir"
   },

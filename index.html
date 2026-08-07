@@ -112,6 +112,11 @@
     .icon-btn:hover { background: rgba(255, 255, 255, 0.08); opacity: 1; }
     .icon-btn:active { transform: scale(0.94); }
     .icon-btn.close:hover { background: var(--danger); color: #fff; opacity: 1; }
+    /* 录屏保护按钮：关闭时高亮警告 */
+    .icon-btn.capture-off { color: var(--danger); opacity: 1; }
+    .icon-btn.capture-off:hover { background: var(--danger); color: #fff; opacity: 1; }
+    /* 置顶按钮：未置顶时变灰 */
+    .icon-btn.aot-off { opacity: 0.45; }
 
     /* 内容区 */
     #content-wrap {
@@ -320,7 +325,10 @@
     <div id="bar" aria-label="拖动此处移动窗口">
       <span class="dot" id="aot-dot" title="置顶状态"></span>
       <span class="title">StealthTextCC</span>
-      <span class="sub" id="mode-hint">点击下方文本区输入讲稿 · Space 播放/暂停</span>
+      <span class="sub" id="mode-hint">点击下方文本区输入讲稿 · 底部按钮播放/暂停</span>
+      <button class="icon-btn" id="btn-aot-top" title="永远置顶" aria-label="永远置顶">📌</button>
+      <button class="icon-btn" id="btn-capture-top" title="录屏保护" aria-label="录屏保护">🔒</button>
+      <button class="icon-btn" id="btn-hide" title="隐藏窗口" aria-label="隐藏窗口">─</button>
       <button class="icon-btn" id="btn-settings" title="设置（透明度、镜像）" aria-label="设置">⚙</button>
       <button class="icon-btn close" id="btn-close" title="关闭" aria-label="关闭">✕</button>
     </div>
@@ -332,7 +340,7 @@
            spellcheck="false"
            role="textbox"
            aria-multiline="true"
-           data-placeholder="在此粘贴或输入讲稿。点击空白处开始输入。&#10;&#10;播放时正文自动滚动，提词器只显示给你看，录屏里看不到。&#10;&#10;快捷键：Space 播放/暂停 · ↑↓ 调速 · ←→ 字号 · ⌘A 全选"></div>
+           data-placeholder="在此粘贴或输入讲稿。点击空白处开始输入。&#10;&#10;播放时正文自动滚动，提词器只显示给你看，录屏里看不到。&#10;&#10;快捷键：↑↓ 调速 · ←→ 字号 · ⌘A 全选"></div>
     </div>
 
     <!-- 设置面板 -->
@@ -412,6 +420,8 @@
       padX: 16,
       mirror: false,
       alwaysOnTop: true,
+      captureProtected: true,
+      captureHalfEffective: false,
       raf: null,
       lastT: 0,
     };
@@ -437,6 +447,9 @@
     const btnClear = $('btn-clear');
     const btnSettings = $('btn-settings');
     const btnClose = $('btn-close');
+    const btnAotTop = $('btn-aot-top');
+    const btnCaptureTop = $('btn-capture-top');
+    const btnHide = $('btn-hide');
     const speed = $('speed');
     const speedNum = $('speed-num');
     const fontSize = $('font-size');
@@ -508,6 +521,32 @@
       aotDot.classList.toggle('off', !state.alwaysOnTop);
       btnAot.setAttribute('aria-pressed', String(state.alwaysOnTop));
       aotText.textContent = state.alwaysOnTop ? '已置顶' : '置顶关';
+      // 录屏保护按钮
+      btnCaptureTop.textContent = state.captureProtected ? '🔒' : '🔓';
+      btnCaptureTop.classList.toggle('capture-off', !state.captureProtected);
+      btnCaptureTop.title = state.captureProtected ? '录屏保护：已开启' : '⚠ 录屏保护：已关闭（录屏可见）';
+      // 置顶按钮
+      btnAotTop.textContent = state.alwaysOnTop ? '📌' : '📍';
+      btnAotTop.classList.toggle('aot-off', !state.alwaysOnTop);
+      btnAotTop.title = state.alwaysOnTop ? '永远置顶：已开启' : '永远置顶：已关闭';
+      // 同步底部录屏保护提示带
+      updatePrivacyHint();
+    }
+
+    // ----- 同步底部录屏保护提示带 -----
+    function updatePrivacyHint() {
+      const ph = document.getElementById('privacy-hint');
+      if (!ph) return;
+      if (state.captureProtected) {
+        if (state.captureHalfEffective) {
+          ph.textContent = '⚠ Windows 录屏保护已开启（部分有效）—— 对 OBS / Game Bar / 视频会议录屏有效；' +
+                           'Win+Shift+S、Snip & Sketch、Bandicam 某些模式可能绕过';
+        } else {
+          ph.textContent = '✓ macOS 录屏保护已开启 —— 对 QuickTime / OBS / 视频会议共享屏幕均有效';
+        }
+      } else {
+        ph.textContent = '⚠ 录屏保护已关闭 —— 录屏/共享屏幕时其他 App 可以看到提词器内容';
+      }
     }
 
     // ----- 编辑 / 播放 模式 -----
@@ -584,6 +623,19 @@
 
     btnAot.addEventListener('click', () => {
       if (window.api && window.api.toggleAlwaysOnTop) window.api.toggleAlwaysOnTop();
+    });
+
+    // 顶栏按钮
+    btnAotTop.addEventListener('click', () => {
+      if (window.api && window.api.toggleAlwaysOnTop) window.api.toggleAlwaysOnTop();
+    });
+
+    btnCaptureTop.addEventListener('click', () => {
+      if (window.api && window.api.toggleCaptureProtection) window.api.toggleCaptureProtection();
+    });
+
+    btnHide.addEventListener('click', () => {
+      if (window.api && window.api.toggleVisible) window.api.toggleVisible();
     });
 
     btnMirror.addEventListener('click', () => {
@@ -740,24 +792,15 @@
     }
 
     // ----- 快捷键 -----
-    // 编辑态下也响应 Space / 方向键 / Home / End / Esc（这些是控制快捷键）
-    // 其它按键（字母、数字、Backspace、Enter、⌘A 等）继续让浏览器原生处理
-    const CONTROL_KEYS = new Set([' ', 'Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'Escape']);
+    // 方向键 / Home / End / Esc（控制快捷键）
+    // Space 已移除，避免与输入法冲突；播放/暂停用底部按钮控制
+    const CONTROL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'Escape']);
     window.addEventListener('keydown', (e) => {
       // 编辑态且焦点在文本区时，只抢控制键；其余让浏览器处理
       if (state.mode === 'edit' && e.target === content && !CONTROL_KEYS.has(e.key) && !CONTROL_KEYS.has(e.code)) {
         return;
       }
-      // 播放 / 全局
-      if (e.key === ' ' || e.code === 'Space') {
-        e.preventDefault();
-        if (!content.innerText.trim()) {
-          modeHint.textContent = '先在文本区输入讲稿再播放';
-          content.focus();
-          return;
-        }
-        setMode(state.mode === 'play' ? 'edit' : 'play');
-      } else if (e.key === 'ArrowUp') {
+      if (e.key === 'ArrowUp') {
         e.preventDefault();
         setSpeed(state.speed + 5);
       } else if (e.key === 'ArrowDown') {
@@ -791,6 +834,14 @@
       });
     }
 
+    // ----- 来自主进程的录屏保护状态变化 -----
+    if (window.api && window.api.onCaptureProtectionChanged) {
+      window.api.onCaptureProtectionChanged((v) => {
+        state.captureProtected = !!v;
+        applyState();
+      });
+    }
+
     // ----- 启动 -----
     function init() {
       restoreAll();
@@ -800,23 +851,23 @@
           state.alwaysOnTop = !!window.api.getAlwaysOnTop();
         }
       } catch (_) {}
+      // 初始录屏保护状态以主进程为准
+      try {
+        if (window.api && window.api.getCaptureProtection) {
+          state.captureProtected = !!window.api.getCaptureProtection();
+        }
+      } catch (_) {}
       // 平台能力提示带 —— 按 IPC 上报的真实能力渲染
       try {
         const ph = document.getElementById('privacy-hint');
         if (ph && window.api && window.api.getPlatform) {
           const info = window.api.getPlatform() || {};
-          let label = '';
+          state.captureHalfEffective = info.captureProtectionHalfEffective || false;
           if (info.platform === 'darwin') {
-            label = '✓ macOS 录屏保护已启用 —— 对 QuickTime / OBS / 视频会议共享屏幕均有效';
             ph.classList.add('mac-strong');
           } else if (info.platform === 'win32') {
-            label = '⚠ Windows 录屏保护部分有效 —— 对 OBS / Game Bar / 视频会议录屏有效；' +
-                    'Win+Shift+S、Snip & Sketch、Bandicam 某些模式可能绕过（这是 Windows API 设计局限）';
             ph.classList.add('win-strong');
-          } else {
-            label = '· Linux 暂不支持录屏保护 —— 仅作为浮层使用';
           }
-          ph.textContent = label;
           ph.style.display = 'block';
         }
       } catch (_) { /* 静默失败 —— 没有提示带也无所谓 */ }
