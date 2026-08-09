@@ -138,6 +138,27 @@ async function stopElectron({ graceful = true } = {}) {
   currentPort = 0;
 }
 
+async function quitElectronViaApp(page) {
+  const child = electronProc;
+  assert.ok(child, 'Electron process is not running');
+  try {
+    await cdpCall(page, 'Runtime.evaluate', {
+      expression: `(() => {
+        setTimeout(() => window.api.quit(), 0);
+        return 'quit-scheduled';
+      })()`,
+      returnByValue: true,
+    });
+  } catch { /* 页面可能在 CDP 返回前关闭 */ }
+  if (await waitForExit(child, 5000)) {
+    electronProc = null;
+    currentPort = 0;
+    return;
+  }
+  await stopElectron();
+  throw new Error('App did not exit through the quit IPC within 5s');
+}
+
 test('启动 + 渲染 + preload 桥接', async () => {
   const { page } = await startElectron({ userDataDir: testDataDir('stealthtext-test-1') });
   try {
@@ -298,7 +319,7 @@ test('localStorage 持久化讲稿', async () => {
     assert.ok(probe1?.written?.includes(unique),
       `第一次启动写入失败: content="${probe1?.content?.slice(0, 50)}", ls="${probe1?.written?.slice(0, 80)}"`);
     // 关掉再启
-    await stopElectron();
+    await quitElectronViaApp(page);
     await new Promise(r => setTimeout(r, 1500));
     const { page: page2 } = await startElectron({ userDataDir: fixedDir });
     await new Promise(r => setTimeout(r, 500));
