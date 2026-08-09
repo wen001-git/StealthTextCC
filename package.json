@@ -1,6 +1,6 @@
 {
   "name": "stealthtextcc",
-  "version": "0.1.0",
+  "version": "0.2.0-beta.1",
   "description": "macOS / Windows 隐身浮层提词器：永远置顶，录屏时不可见（与 StealthText 区分）",
   "main": "main.js",
   "author": "stealthtextcc",
@@ -11,13 +11,22 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test tests/screen-protection.test.mjs",
-    "build:mac": "electron-builder --mac dir --arm64",
+    "build:mac": "npm run build:mac:arm64",
+    "build:mac:arm64": "electron-builder --mac dir --arm64",
     "build:mac:x64": "electron-builder --mac dir --x64",
-    "build:mac:universal": "npm run build:mac && npm run build:mac:x64",
-    "build:win": "electron-builder --win zip --x64",
+    "build:mac:all": "npm run build:mac:arm64 && npm run build:mac:x64",
+    "build:mac:universal": "npm run build:mac:all",
+    "dist:mac:arm64": "electron-builder --mac zip --arm64",
+    "dist:mac:x64": "electron-builder --mac zip --x64",
+    "dist:mac:all": "npm run dist:mac:arm64 && npm run dist:mac:x64",
+    "build:win": "npm run dist:win:x64",
+    "dist:win:x64": "electron-builder --win zip --x64",
+    "verify:mac:arm64": "node scripts/verify-mac-app.mjs arm64 dist/mac-arm64/StealthTextCC.app",
+    "verify:mac:x64": "node scripts/verify-mac-app.mjs x86_64 dist/mac/StealthTextCC.app",
     "pack": "electron-builder --dir"
   },
   "devDependencies": {
+    "@electron/asar": "3.4.1",
     "electron": "43.3.0",
     "electron-builder": "26.15.3"
   },
@@ -32,17 +41,19 @@
     ],
     "mac": {
       "category": "public.app-category.productivity",
+      "minimumSystemVersion": "12.0",
       "target": [
         "dir"
       ],
-      "identity": null
+      "identity": null,
+      "artifactName": "${productName}-${version}-mac-${arch}.${ext}"
     },
     "win": {
       "target": [
         "zip"
       ],
       "icon": null,
-      "artifactName": "StealthTextCC-${version}-${arch}.${ext}"
+      "artifactName": "${productName}-${version}-win-${arch}.${ext}"
     }
   }
 }

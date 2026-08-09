@@ -7,6 +7,5 @@ docs/verification-*/
 # Electron build files
 backup/
 dist-backup/
-dist/
 release/
 *.app/
