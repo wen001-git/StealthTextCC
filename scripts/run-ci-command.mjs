@@ -13,12 +13,12 @@ if (!tasks[task]) {
   process.exit(2);
 }
 
-const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-const result = spawnSync(npmCommand, tasks[task], {
+const result = spawnSync('npm', tasks[task], {
   cwd: process.cwd(),
   encoding: 'utf8',
   env: process.env,
   maxBuffer: 20 * 1024 * 1024,
+  shell: process.platform === 'win32',
 });
 
 if (result.stdout) process.stdout.write(result.stdout);
