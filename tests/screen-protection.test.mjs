@@ -210,27 +210,29 @@ test('启动 + 渲染 + preload 桥接', async () => {
 test('编辑 → 播放 → 滚到底自动暂停', async () => {
   const { page } = await startElectron({ userDataDir: testDataDir('stealthtext-test-2') });
   try {
-    // 设置一个很短的讲稿 + 慢速，确保滚到底
-    await cdpCall(page, 'Runtime.evaluate', {
+    // 用足够长的讲稿确保不同字体/窗口环境下都有可滚动区域。
+    const prepared = await cdpCall(page, 'Runtime.evaluate', {
       expression: `(() => {
         const c = document.getElementById('content');
-        c.innerText = '段1\\n\\n段2\\n\\n段3\\n\\n段4';
+        c.innerText = Array.from({ length: 80 }, (_, i) => '第' + (i + 1) + '段测试讲稿').join('\\n\\n');
         c.dispatchEvent(new Event('input', { bubbles: true }));
         document.getElementById('speed').value = 60; // px/sec
         document.getElementById('speed').dispatchEvent(new Event('input', { bubbles: true }));
-        return c.innerText.length;
+        c.scrollTop = 0;
+        return JSON.stringify({
+          clientHeight: c.clientHeight,
+          scrollHeight: c.scrollHeight,
+          maxScroll: c.scrollHeight - c.clientHeight,
+        });
       })()`,
       returnByValue: true,
     });
+    const metrics = JSON.parse(prepared.result.result.value);
+    assert.ok(metrics.maxScroll > 100, `test content must overflow: ${JSON.stringify(metrics)}`);
 
     // 点击播放按钮进入播放
     await cdpCall(page, 'Runtime.evaluate', {
       expression: `(() => {
-        const c = document.getElementById('content');
-        // 用 execCommand 确保内容触发正确的编辑事件
-        c.focus();
-        document.execCommand('selectAll', false, null);
-        document.execCommand('insertText', false, '段1\\n\\n段2\\n\\n段3\\n\\n段4');
         const btn = document.getElementById('btn-play');
         if (btn) btn.click();
         return true;
@@ -250,6 +252,19 @@ test('编辑 → 播放 → 滚到底自动暂停', async () => {
     const m = JSON.parse(mid.result.result.value);
     assert.equal(m.mode, 'play');
     assert.equal(m.playLabel, '暂停');
+
+    // 移到结尾附近，再让真实播放循环完成自动暂停，避免测试时长依赖讲稿高度。
+    await cdpCall(page, 'Runtime.evaluate', {
+      expression: `(() => {
+        const c = document.getElementById('content');
+        c.scrollTop = Math.max(0, c.scrollHeight - c.clientHeight - 2);
+        const speed = document.getElementById('speed');
+        speed.value = 200;
+        speed.dispatchEvent(new Event('input', { bubbles: true }));
+        return c.scrollTop;
+      })()`,
+      returnByValue: true,
+    });
 
     // 等滚到底（最多 5 秒）
     let final;
