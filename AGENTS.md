@@ -40,13 +40,14 @@ npm run verify:mac:arm64
 - 自动化：4/4 跨平台测试；本地 arm64 App 可构建、校验并启动。
 - macOS：arm64 / Intel x64 两个独立 App 和 ZIP；不签名、不公证。
 - Windows：删除 Koffi，统一使用 Electron `setContentProtection()`；生成 x64 ZIP。
-- CI：`.github/workflows/build-desktop.yml` 普通 push 构建三个 artifacts，`v*` 标签自动创建 Release。
+- CI：`.github/workflows/build-desktop.yml` 普通 push 构建三个 artifacts，`v*` 标签自动创建 Release；运行代码提交 `af01f8b` 的 macOS / Windows job 已全绿。
+- 本机录屏：macOS 15.7.3 的系统录屏命令录制主屏 4.73 秒时，辅助功能树确认 App 可见且内容完整，回放帧中未出现 App；这只证明该系统捕获路径有效。
 - 安全边界：录屏保护是尽力而为，不适合密码、密钥或其他高敏感内容。
 
 ## 下一步 TODO
 
-- [ ] 确认 main 分支最新 macOS / Windows Actions 均通过且三个 artifacts 齐全。
-- [ ] 完成目标 macOS 录屏软件的人工 5 秒验证并记录结果。
+- [x] 确认运行代码提交的 macOS / Windows Actions 均通过且三个 artifacts 齐全。
+- [x] 完成 macOS 15.7.3 系统录屏约 5 秒验证并记录结果。
 - [ ] 推送 `v0.2.0-beta.1`，检查 prerelease 和三个 ZIP。
 - [ ] 从 Release 下载 arm64 ZIP，在本机解压、校验并启动。
 - [ ] 由朋友在真实 Intel Mac 与 Windows x64 机器验证启动、交互和录屏边界。
@@ -90,5 +91,6 @@ npm run verify:mac:arm64
 
 | 日期 | 变更内容 |
 |------|---------|
+| 2026-08-09 | 记录 `af01f8b` 三平台 CI 和 macOS 15.7.3 系统录屏验证通过，并划掉对应 TODO；why：让接手者以实测状态继续 beta 发布 |
 | 2026-08-09 | 更新 Electron 43、无 Koffi 的统一保护、三平台 CI、两个独立 Mac 架构包、本地 arm64 强制验收和 beta 发布 TODO；修正录屏保护能力边界 |
 | 2026-07-30 | 完整功能版首次实现、4/4 自动化测试和 StealthTextCC 独立命名 |

@@ -95,9 +95,18 @@ StealthTextCC-<version>-win-x64.zip
 - [ ] 从 Release 下载 arm64 ZIP，解压、校验并启动
 - [ ] Intel 与 Windows 在朋友真机确认前标记 prerelease
 
+## 0.2.0-beta.1 本机验证记录
+
+- 2026-08-09，macOS 15.7.3 Apple Silicon：`npm test` 4/4 通过，`npm audit` 为 0 vulnerabilities。
+- 本地 `dist/mac-arm64/StealthTextCC.app`：纯 arm64，版本 `0.2.0-beta.1`，`app.asar` 源码哈希与仓库一致并可实际启动。
+- `screencapture -v -V 5 -D1` 生成 4.73 秒主屏视频；录制同时辅助功能树确认 StealthTextCC 窗口可见且讲稿内容完整，视频抽帧中没有出现该窗口。
+- 上述结果只证明 macOS 15.7.3 系统捕获路径有效，不代表所有 ScreenCaptureKit、OBS 或会议软件都有效。
+- 运行代码提交 `af01f8b` 的 GitHub Actions macOS / Windows job 全绿，并生成三个 artifacts。
+
 ## 变更记录
 
 | 日期 | 变更内容 |
 |------|---------|
+| 2026-08-09 | 记录 beta 发布前自动测试、依赖审计、本地 arm64 校验、系统录屏和三平台 CI 的实际结果；why：为标签发布保留可复核证据 |
 | 2026-08-09 | 增加每轮本地 arm64 构建、架构/源码/时间校验、启动冒烟、CI 三产物和 Release 回下载验收；删除不存在的全局快捷键检查 |
 | 2026-07-30 | 初版：4 项自动化测试、人工录屏和交互清单 |
