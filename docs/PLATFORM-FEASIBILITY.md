@@ -1,166 +1,84 @@
-# 平台可行性论证 — StealthTextCC
+> 目的：记录 StealthTextCC 的三平台能力、技术选型和录屏保护边界。　目标读者：维护者 / 评估技术可行性的人。　如何阅读：先看「结论」，再按平台查看限制；不要把 API 请求等同于绝对防捕获。
 
-> 目的：记录「为什么这个工具能跑通、为什么选这个技术栈、为什么目标场景能成立」的关键事实，避免后续重新探索。　目标读者：未来想重做 / 改方案 / 答辩 / 接手维护的人。　如何阅读：先看「结论」一节，再按需深挖。
+# 平台可行性论证
 
-## 一句话结论
+## 结论
 
-**可在 macOS 上用 Electron 实现「永远置顶 + 录屏时对其他 App 不可见」的浮层提词器，依赖 Apple 原生窗口 API `NSWindow.sharingType = .none`（由 Electron 封装为 `BrowserWindow.setContentProtection(true)`）。对 QuickTime / OBS / Zoom 共享屏幕 / 腾讯会议共享屏幕 / Keynote 录屏均有效；物理外接采集卡、极少数远程控制类应用不能保证 100%。**
+Electron 可以可靠提供透明浮层、置顶、滚动和本地讲稿；macOS 与 Windows 也能通过 `BrowserWindow.setContentProtection(true)` 请求系统排除窗口。但它不是跨所有录屏软件的安全保证：Electron 文档明确指出 macOS 上新的 ScreenCaptureKit 捕获仍可能抓到受保护窗口，Windows 也存在其他可绕过路径。
 
----
+## 能力拆分
 
-## 1. 需求的本质拆解
-
-用户想要的是**三个独立可叠加的 macOS 窗口级能力**：
-
-| 能力 | 谁提供 | API（macOS 原生） | Electron 封装 |
+| 能力 | macOS | Windows | Linux |
 |---|---|---|---|
-| 永远置顶 | AppKit | `NSWindow.level = .floating` | `BrowserWindow.setAlwaysOnTop(true, 'floating')` |
-| 跨桌面 / 全屏可见 | AppKit | `NSWindow.collectionBehavior` 含 `.canJoinAllSpaces` + `.fullScreenAuxiliary` | `BrowserWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })` |
-| **录屏时对其他 App 不可见** | AppKit | **`NSWindow.sharingType = .none`**（或 `.readOnlyIgnoreAll`） | **`BrowserWindow.setContentProtection(true)`** |
+| 永远置顶 | `setAlwaysOnTop()` | `setAlwaysOnTop()` | 依窗口管理器而定 |
+| 跨全屏/空间 | `setVisibleOnAllWorkspaces()` | 本期未实现跨虚拟桌面 | 依桌面环境而定 |
+| 录屏保护 | `setContentProtection()` | `setContentProtection()` | Electron 当前不支持 |
+| 拖动、缩放、滚动、镜像、本地保存 | 已实现 | 已实现 | 基础能力可运行 |
 
-第三个是核心，也是**唯一做不到的就完全无用**的能力。前两个缺一不可（否则要么被盖住、要么切桌面就丢）。
+这些能力彼此独立。Gatekeeper 是否允许 App 启动、App 是否经过代码签名，以及录屏软件是否遵守窗口保护，是三个不同问题。
 
----
+## macOS 录屏保护
 
-## 2. 关于 `setContentProtection` 的真实行为
+Electron 在 macOS 上通过窗口共享属性实现 `setContentProtection()`。传统捕获路径可能把窗口排除或替换，但 Electron 官方 API 文档同时给出重要警告：使用 ScreenCaptureKit 的新式应用仍可能捕获受保护窗口。
 
-### 它解决什么
+因此只能得出以下结论：
 
-> Apple 的 [NSWindow SharingType 文档](https://developer.apple.com/documentation/appkit/nswindow/sharingtype) 和 [ScreenCaptureKit](https://developer.apple.com/documentation/screencapturekit) 都定义了**「窗口级」屏幕捕获排除**机制。Electron 的 `setContentProtection(true)` 把它包成一行 JS。
+- 保护默认开启，并对一部分系统/应用捕获路径有效。
+- 不能笼统宣称 QuickTime、OBS、Zoom、Keynote 或“所有 ScreenCaptureKit 软件”一定看不到。
+- 软件版本、选择的捕获源和 macOS 版本都可能影响结果，必须逐个实测。
+- `webContents.capturePage()` 能截到本 App 自身并不代表外部录屏保护失效；它只证明 App 自身渲染正常。
+- 物理采集卡、摄像头拍屏与其他硬件路径无法阻止。
 
-行为总结（综合 Apple 文档 + Chromium 实现 + 实测）：
+## Windows 录屏保护
 
-- 当 macOS 把屏幕内容送给**其他进程**做捕获时（屏幕录制 App、屏幕共享、视频会议 App），如果当前窗口 `sharingType = .none`，该进程收到的帧里**这个窗口位置是黑屏**或被替换为占位。
-- 当 macOS 把屏幕内容送给**同一进程**（如主进程自己的 `webContents.capturePage()`），仍能拿到真实像素。
-- **App 自身的 UI / 截图 / 录屏功能不受影响** —— 这是设计意图，让 App 自己截图、缩略图、特效能继续工作。
+Electron 43 在 Windows 上直接提供 `setContentProtection()`，内部使用 Windows 的显示亲和性机制。本项目不再引入 Koffi，也不再手写 `user32.dll` FFI。
 
-### 用户视角的具体表现
+Windows 保护属于尽力而为：常见捕获路径可能遵守 `WDA_EXCLUDEFROMCAPTURE`，但系统截图、直接窗口捕获、注入/Hook、取证软件或硬件采集可能绕过。不能用某一个录屏工具的结果替代所有工具验证。
 
-- QuickTime Player「新建屏幕录制」：提词器区域**黑屏**
-- OBS「显示器捕获」：**黑屏**
-- Zoom / 腾讯会议 / Slack「共享屏幕」：**看不到**
-- Keynote 自带录屏：**看不到**
-- macOS 自带 `screencapture` 命令行工具：**看不到**（同 NSWindow sharingType 体系）
-- **同 App 自己的截图（`webContents.capturePage()`）：看得见**（这是正确行为）
+Windows 11 跨虚拟桌面可见性本期仍未实现；若后续需要，可能要单独使用系统 COM 接口。
 
-### 它**不**解决什么
+## 为什么使用 Electron
 
-- **物理外接采集卡**：硬件层面采集 HDMI，无解
-- **极少数远程控制类 App**（如某些远程协助 / 屏幕镜像）：走私有通道，绕过 macOS 共享 API
-- **macOS Sequoia (15) 后可能更严格的捕获语义**：用户应实测验证，Apple 不保证第三方 100% 服从
-- **自己录自己**：故意不阻断（否则 App 自己也不能截图了）
-
-### .none 的语义陷阱（命名误导）
-
-> Apple 命名里有个容易踩坑的反直觉点：`sharingType = .none` 才是「不参与捕获」的设置。读起来像「未配置」，但其实是「**主动声明不共享**」。
-> 来源：[NSWindow.sharingType | Apple Developer](https://developer.apple.com/documentation/appkit/nswindow/sharingtype)（枚举：`none / readOnly / readOnlyIgnoreAll`）
-
-如果错把它当「未设置」处理，会导致保护完全失效——Electron 帮你封装了，省了踩坑。
-
----
-
-## 3. 为什么选 Electron（而不是 SwiftUI / Tauri / Qt）
-
-| 方案 | 体积 | 开发成本 | 录屏保护 | 决定 |
-|---|---|---|---|---|
-| **Electron** | ~150-200 MB | 低（HTML+JS） | ✅ 一行 API | **选这个** |
-| SwiftUI / AppKit 原生 | ~5-10 MB | 高（Swift 从零写提词器逻辑） | ✅ 同 API | 没必要为个人工具重写 |
-| Tauri | ~5-15 MB | 中（Rust + WebView 混合） | 需 Rust 调 Objective-C 桥 | 文档少、不必要 |
-| Qt | 大 | 高 | macOS 上需调 native code | 不合适 |
-
-**关键判据**：我们能直接复用 WhiteBoard 项目的提词器思路（拖动、缩放、滚动、键盘）——它们在 `#tele*` 系列 DOM 里已经验证过算法。Electron 让「**概念借鉴成本最低**」。SwiftUI 重写所有 UI 拖动/缩放逻辑的人力远超 Electron 多出来的 150MB 体积。
-
----
-
-## 4. 三种窗口置顶 / 穿透相关 API 的副作用清单
-
-| 调用 | 副作用 1 | 副作用 2 |
-|---|---|---|
-| `setAlwaysOnTop(true, 'floating')` | 浮于所有空间 | 部分 App 截图工具能拍到（除非配合下面） |
-| `setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })` | 跨桌面可见 | 全屏 App 上也可见（如 Keynote 幻灯片全屏） |
-| `setHiddenInMissionControl(true)` | 不在 Mission Control / App Exposé | Electron 28 才稳定，老版本可能崩 → 已 try/catch |
-
-**注意**：`setHiddenInMissionControl` 较新，老 Electron 可能没有—— **务必 try/catch**（这是实测中踩到的坑：`setHiddenFromMissionControl` 不存在，正确名是 `setHiddenInMissionControl`，缺字母 From）。
-
----
-
-## 5. 必须人工验证、自动化跑不了的部分
-
-任何 OS 级录屏 API **都不能用自动化测试 100% 验证**「外部 App 视角下不可见」，因为：
-
-- 跑自动测试的子进程本身**也拿不到屏幕录制权限**（macOS 设计：每个进程单独授权）
-- 我们只能自动化验证「App 自身能截到自己」——这是「保护不误伤自身」的必要条件
-- 「外部进程看不到」必须用户在自己的 Mac 上跑 QuickTime 录屏 5 秒确认
-
-**这意味着**：每改一次录屏相关代码，要人工录一次屏。**自动化覆盖率上限 = 「自身截图正常」+「浮层基本功能」**。
-
----
-
-## 6. 跨平台能不能做
-
-| 平台 | 录屏排除 API | 状态 | 原理 |
+| 方案 | UI 复用 | 窗口保护接入 | 代价 |
 |---|---|---|---|
-| macOS | `NSWindow.sharingType = .none` | ✅ 已实现 | Electron `win.setContentProtection(true)` |
-| Windows | `SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)` | ⚠️ **半实现** | koffi FFI 调 user32.dll，仅对 Desktop Duplication / GDI 抓屏有效 |
-| Linux | 多数桌面环境没有等价 API | ❌ 不可用 | 当前不实现 |
+| Electron | 直接复用 HTML/CSS/JS | macOS/Windows 均有统一 API | 包体较大 |
+| AppKit/Swift | 需重写 UI | 原生能力完整 | 开发成本高 |
+| Tauri | 可复用部分 Web UI | 需额外原生桥接 | 维护面更大 |
+| Qt | 需重写/适配 | 需平台原生处理 | 不符合当前规模 |
 
-### Windows 半防护详解
+当前 Electron 43.3.0 配合 electron-builder 26.15.3，可由同一提交生成 macOS arm64、macOS Intel x64 和 Windows x64 三个独立 ZIP，符合小范围试用目标。
 
-Microsoft Learn 文档原话：
+## 自动化与人工验证边界
 
-> The WDA_EXCLUDEFROMCAPTURE flag **may be ignored** by applications that capture window contents directly.
+自动化可以验证：
 
-Windows 上能挡住的录屏 / 截图场景：
-- ✅ OBS（显示器/窗口捕获）
-- ✅ Xbox Game Bar
-- ✅ Zoom / 腾讯会议 / Slack 共享屏幕
-- ✅ PowerPoint 录屏
-- ✅ Nvidia ShadowPlay
-- ✅ 大部分企业级录屏（基于 DXGI / GDI）
+- Electron 启动并加载当前页面。
+- preload 最小 API、编辑、播放、自动暂停正常。
+- App 自身截图正常。
+- 讲稿在正常退出后可从 `localStorage` 恢复。
+- 本地 App 架构、版本、源码哈希和构建时间正确。
 
-**挡不住**的（这是硬限制，不是我们的代码问题）：
-- ❌ Snip & Sketch / Snipping Tool（用 DWM 缩略图 + PrintWindow）
-- ❌ Bandicam 的某些 hook 模式
-- ❌ Win + Shift + S 截图
-- ❌ 取证 / 反取证类工具
-- ❌ 物理外接采集卡
+自动化不能证明所有外部录屏软件都无法捕获窗口。每次修改录屏保护实现或升级 Electron 后，必须用目标软件人工录制至少 5 秒并查看回放。
 
-**结论**：Windows 上能复刻 macOS 体验**约 80%**。适合「公开讲稿演示」，**不适合涉及隐私的讲稿**（如密码/账号/内幕信息）—— 这时用 macOS 版本更稳。
+## 已知实现陷阱
 
-### Windows 上不能做的（本期范围）
+1. 正确 API 是 `setHiddenInMissionControl()`，不是 `setHiddenFromMissionControl()`。
+2. 透明无边框窗口需要明确交互区域，并在 macOS 禁用阴影以保持圆角。
+3. `Page.captureScreenshot` 是 App 自身视角，不能替代外部录屏验证。
+4. 强制杀死 Electron 可能让 Chromium 来不及刷新 `localStorage`；测试应通过 App 退出路径关闭。
+5. 测试讲稿必须保证存在滚动区，不能依赖不同 runner 的默认字体和窗口布局。
 
-| 功能 | 原因 | 何时能做 |
-|---|---|---|
-| 跨虚拟桌面可见性（Win11） | Electron 无 API，需调 `IVirtualDesktopManager` COM 接口 | 下期可加，需 native bridge |
-| 任务栏图标 100% 隐藏 | Win 上 `skipTaskbar: true` 与托盘图标的交互复杂 | 不计划做 |
+## 官方资料
 
----
-
-## 7. 已知陷阱（这次踩到的）
-
-1. **`setHiddenFromMissionControl` 不是 API 名** —— 正确的是 `setHiddenInMissionControl`（缺 From）。Electron 28 文档相关字段。
-2. **透明无边框窗口事件区会变透明** —— mac 上 `transparent:true + frame:false` 时 `body` 之外的透明像素可能不响应点击；用绝对定位非透明矩形 `#frame` 包住所有交互元素，body 之外 `pointer-events:none`。
-3. **CDP 拿不到「外部录屏视角」** —— `remote-debugging-port` 只能截 App 自身，`screencapture` 命令需要子进程持有屏幕录制权限。两者都不是自动化的可行解。
-4. **localStorage 写入后立刻 SIGKILL 可能丢失** —— Chromium 默认异步 flush LevelDB，重启要能恢复，必须 SIGTERM 让进程清理 1-2 秒（实测教训：默认杀进程后 `localStorage` 静默失效）。
-5. **Space 快捷键在编辑态被焦点拦截** —— `e.target === content` 时，所有 keydown 默认 return。需要白名单「控制键（Space/方向键/Home/End/Esc）」无论焦点在哪里都响应。
-
----
-
-## 8. References（可点击的官方文档）
-
-- [NSWindow.sharingType | Apple Developer](https://developer.apple.com/documentation/appkit/nswindow/sharingtype)
-- [NSWindow.CollectionBehavior | Apple Developer](https://developer.apple.com/documentation/appkit/nswindow/collectionbehavior)
-- [ScreenCaptureKit | Apple Developer](https://developer.apple.com/documentation/screencapturekit)
-- [SCStreamConfiguration | Apple Developer](https://developer.apple.com/documentation/screencapturekit/scstreamconfiguration)
-- [BrowserWindow.setContentProtection | Electron Docs](https://electronjs.org/docs/latest/api/browser-window#winsetcontentprotectionenable)
-- [BrowserWindow.setAlwaysOnTop | Electron Docs](https://electronjs.org/docs/latest/api/browser-window#winsetalwaysontopontop)
-- [BrowserWindow.setVisibleOnAllWorkspaces | Electron Docs](https://electronjs.org/docs/latest/api/browser-window#winsetvisibleonallworkspacesvisible-options)
-- [BrowserWindow.setHiddenInMissionControl | Electron Docs](https://electronjs.org/docs/latest/api/browser-window#winsethiddeninmissioncontrolhidden-macos)
-
----
+- [Electron BrowserWindow.setContentProtection](https://www.electronjs.org/docs/latest/api/browser-window#winsetcontentprotectionenable)
+- [Apple ScreenCaptureKit](https://developer.apple.com/documentation/screencapturekit)
+- [Apple NSWindow sharingType](https://developer.apple.com/documentation/appkit/nswindow/sharingtype)
+- [Microsoft SetWindowDisplayAffinity](https://learn.microsoft.com/windows/win32/api/winuser/nf-winuser-setwindowdisplayaffinity)
+- [Electron BrowserWindow.setVisibleOnAllWorkspaces](https://www.electronjs.org/docs/latest/api/browser-window#winsetvisibleonallworkspacesvisible-options)
 
 ## 变更记录
 
 | 日期 | 变更内容 |
 |------|---------|
-| 2026-07-30 | 初版：记录平台选型、API 真实行为、自动化测试边界、踩过的坑 |
+| 2026-08-09 | 按 Electron 43 的统一 API 重写三平台边界，删除 Koffi 方案和具体软件必然有效的断言，并补充 ScreenCaptureKit 可能绕过的官方限制 |
+| 2026-07-30 | 初版：记录平台选型、窗口 API、自动化边界和实现陷阱 |

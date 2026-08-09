@@ -1,149 +1,122 @@
-> 目的：让任何人在 30 秒内能跑起来、打包、验证录屏隐身。　目标读者：用户本人 / 接手维护的开发者。　如何阅读：先看「快速开始」跑通；看「录屏验证」做关键确认；其余按需翻。
+> 目的：让用户和维护者正确运行、打包、分享并验证 StealthTextCC。　目标读者：试用者 / 接手维护的开发者。　如何阅读：首次使用看「安装与打开」；开发者看「本地构建与验收」；分享版本看「GitHub 产物」。
 
-# StealthTextCC — macOS 隐身浮层提词器
+# StealthTextCC
 
-一个**永远置顶、录屏时对其他 App 不可见**的桌面提词器。录屏/视频会议/演讲时只有你能看到讲稿，录出来的视频完全干净。
+StealthTextCC 是基于 Electron 的 macOS / Windows 浮层提词器，支持永远置顶、讲稿滚动、拖动、缩放、镜像和本地保存，并通过 `BrowserWindow.setContentProtection(true)` 尝试减少窗口被录屏或共享屏幕捕获。
 
-基于 Electron + `BrowserWindow.setContentProtection(true)`（封装 macOS 的 `NSWindow.sharingType = .none`）。
-
-> **命名说明**：本项目叫 StealthTextCC，区别于另一个叫 StealthText 的 App（CodeX 开发的）。App 二进制名 / Bundle ID / userData 目录都叫 StealthTextCC，互不冲突。
-
----
+> 录屏保护不是保密机制。Electron 明确提示：macOS 上采用 ScreenCaptureKit 的新式捕获仍可能抓到受保护窗口；Windows 的其他捕获路径也可能绕过。分享或演示前必须用实际录屏软件验证，不要输入密码、密钥等敏感信息。
 
 ## 快速开始
 
-```bash
-cd /Users/Zhuanz/claude/stealthtextcc
-npm install        # 第一次需要装依赖（已经装过可跳过）
-npm start          # 启动浮层
-```
-
-启动后会看到屏幕底部中间出现一个圆角半透明窗口：
-- 顶栏可拖动（移到屏幕任何位置，贴近摄像头也行）
-- 点击下方文本区直接输入讲稿
-- 底栏点 ▶ 播放（快捷键 Space）
-- 右下角拖手柄改尺寸（最小 320×160）
-
-## 打包成 .app
-
-### 只打 arm64（你自己用，秒打）
+需要 Node.js 22.12 或更高版本。
 
 ```bash
-npm run build:mac
-# 产物：dist/mac-arm64/StealthTextCC.app
+cd /Users/Zhuanz/Claude/StealthTextCC
+npm install
+npm start
 ```
 
-### 打 arm64 + Intel 双架构（发给其他 Mac 用户）
+常用操作：
 
-```bash
-npm run build:mac:universal
-# 产物：
-#   dist/mac-arm64/StealthTextCC.app   ← Apple Silicon (M1/M2/M3/M4)
-#   dist/mac/StealthTextCC.app          ← Intel
-# 两个各 ~230MB，可以分别 zip 发给对应平台的人
-```
+- Space：播放 / 暂停
+- ↑ / ↓：调整滚动速度
+- ← / →：调整字号
+- Home：回到开头
+- End：跳到底部并暂停
+- Esc：暂停
 
-未签名/未公证——首次双击会弹「无法打开，因为开发者无法验证」。解决：
-1. 在 Finder 找到 `StealthTextCC.app`
-2. 右键 → 打开 → 在弹窗里点「打开」
-3. 之后再双击就正常了
+本项目没有注册系统级全局快捷键，避免与其他应用冲突。
 
-## 录屏验证（关键！）
+## 本地构建与验收
 
-### 自动化（4/4 测试已通过）
+每次修改代码、依赖、运行逻辑或构建配置后执行：
 
 ```bash
 npm test
+npm run build:mac:arm64
+npm run verify:mac:arm64
 ```
 
-跑 4 个测试：
-- 启动 + 渲染 + preload 桥接
-- 编辑 → 播放 → 滚到底自动暂停
-- App 自身截图能看到讲稿（保护不误伤自身）
-- localStorage 持久化讲稿
+本机始终保留最新可用 App：
 
-每次跑测试都使用独立的 `--user-data-dir` 隔离 localStorage。
-
-### 人工：录屏时是否对其他 App 不可见
-
-用 macOS 自带 QuickTime 录屏 5 秒验证：
-
-1. `npm start` 打开提词器，往里写点字
-2. 打开 QuickTime Player → 文件 → 新建屏幕录制 → 点红钮
-3. 选一个包含提词器的区域，录 5 秒后停
-4. 回放 `~/Desktop/无标题.mov`
-
-**预期**：提词器所在的矩形区域是**黑屏**（或被替换为一块纯色）；你屏幕上正常看到的所有内容（包括其他 App）正常出现。
-
-OBS、Zoom 共享屏幕、Keynote 录屏、腾讯会议共享屏幕同理——全部看不到提词器。
-
-## 快捷键
-
-| 键 | 作用 |
-|---|---|
-| Space | 播放 / 暂停 |
-| ↑ ↓ | 调速（每次 ±5 px/秒） |
-| ← → | 调字号（每次 ±2 px） |
-| Home | 回到开头 |
-| End | 跳到底并暂停 |
-| Esc | 暂停（播放时） |
-| ⌘⌥P | 全局：切换永远置顶 |
-| ⌘⌥V | 全局：显示/隐藏窗口 |
-| ⌘⌥S | 全局：切换录屏保护（一般别关） |
-
-## 适用场景
-
-- 视频课程录制：录屏里看不到提词器
-- 视频通话 / Zoom / 腾讯会议：把提词器拖到摄像头附近
-- 直播 / 网络研讨会
-- Keynote 演讲：让讲稿浮在屏幕顶部，眼神自然看向听众
-
-## 跨平台支持
-
-| 平台 | 录屏保护有效范围 |
-|---|---|
-| **macOS** | ✅ 完整有效（对 QuickTime / OBS / Zoom / Keynote 录屏均黑屏） |
-| **Windows** | ⚠️ 半有效（对 OBS / Xbox Game Bar / Zoom / PowerPoint 录屏黑屏；但 Win+Shift+S、Snip & Sketch、Bandicam 某些模式能绕过——这是 Windows API 设计局限） |
-| **Linux** | ❌ 暂不支持录屏保护（仅作浮层使用） |
-
-永远置顶、跨桌面（mac）、拖动、缩放、滚动播放等所有基础功能**三平台一致**。
-
-### 给其他 Mac 用户的分发方案
-
-- **自己用 / 一两个朋友**：`npm run build:mac`（arm64）或 `npm run build:mac:universal`（arm64 + Intel）→ 整个 `dist/mac*/StealthTextCC.app` 文件夹发过去，对方首次右键 → 打开即可
-- **正式分发 / App Store**：见 `docs/DISTRIBUTION.md`
-
-### 给 Windows 用户的分发方案
-
-Windows 版本通过 **GitHub Actions 自动构建**：
-
-1. push 代码到 GitHub
-2. CI 在 `windows-latest` runner 上跑 `npm ci && npm test && npm run build:win`
-3. 产物 `StealthTextCC-0.1.0-x64.zip` 自动作为 artifact 上传（30 天保留）
-4. 打 tag 推送（`git tag v0.1.0 && git push origin v0.1.0`）会自动创建 Release
-
-对方下载 zip → 解压 → 双击 `StealthTextCC.exe`（Windows 报「未知发布者」点「仍要运行」即可，未签名）。
-
-## 已知限制
-
-- **物理外接采集卡录屏幕** 不会受影响（这是硬件问题，无解）
-- **极少数远程控制类 App** 可能绕过保护（macOS API 不保证 100%）
-- App **自己能截到自己**（`webContents.capturePage()`），这是设计的——如未来要做缩略图预览仍能用
-- **不签名**：首次启动需右键打开
-
-## 文件结构
-
+```text
+dist/mac-arm64/StealthTextCC.app
 ```
-stealthtextcc/
-├── main.js        # 主进程：窗口、菜单、热键、IPC
-├── preload.js     # contextBridge 最小 API
-├── index.html     # 浮层 UI（单文件，含 CSS + JS）
-├── package.json
-└── README.md
+
+`verify:mac:arm64` 会确认 App 是纯 arm64、版本与当前 `package.json` 一致、`app.asar` 中的 `main.js` 与当前源码哈希一致，且产物修改时间属于本轮构建。之后还要实际启动 App，检查窗口和主要交互。
+
+Intel 及双架构独立构建：
+
+```bash
+npm run build:mac:x64       # dist/mac-x64/StealthTextCC.app
+npm run build:mac:all       # 依次生成 arm64 和 x64 两个 App
 ```
+
+这里的“双架构”是两个独立 App，不是单个 Universal App。最低系统版本为 macOS 12。
+
+## 发布 ZIP
+
+```bash
+npm run dist:mac:arm64
+npm run dist:mac:x64
+npm run dist:win:x64        # 应在 Windows 或 GitHub Actions 运行
+```
+
+版本 `0.2.0-beta.1` 的文件名为：
+
+```text
+StealthTextCC-0.2.0-beta.1-mac-arm64.zip
+StealthTextCC-0.2.0-beta.1-mac-x64.zip
+StealthTextCC-0.2.0-beta.1-win-x64.zip
+```
+
+普通 push 会由 GitHub Actions 构建并保存以上三个 artifacts；推送 `v*` 标签会创建 GitHub Release，并上传同一提交生成的三个 ZIP。
+
+## 安装与打开
+
+### macOS
+
+当前版本未使用 Developer ID 签名，也未公证。首次打开时：
+
+1. 解压对应架构的 ZIP。
+2. 在 Finder 中右键 `StealthTextCC.app`，选择「打开」。
+3. 再在系统弹窗中选择「打开」。
+4. 如果没有该按钮，前往「系统设置 → 隐私与安全性」，确认允许打开。
+
+这是 Gatekeeper 对未签名下载软件的提示，与“录屏保护是否有效”是两回事。右键打开只是允许 App 启动，不会增强录屏保护。
+
+### Windows
+
+解压 ZIP 后双击 `StealthTextCC.exe`。当前版本没有代码签名；若 Windows 显示未知发布者或 SmartScreen 提示，只应在确认文件来自本项目 Release 后选择继续。
+
+## 录屏保护验证
+
+自动测试覆盖启动、播放、App 自身截图和本地讲稿持久化，但无法证明第三方录屏软件看不到窗口。
+
+至少用你实际要使用的软件录制 5 秒：画面包含 StealthTextCC 和另一个普通窗口，回放后确认 StealthTextCC 是否被排除。不同软件、版本、捕获源可能得出不同结果；不要根据 QuickTime 的结果推断 OBS、会议软件或 ScreenCaptureKit 软件也一定相同。
+
+## 三个平台的边界
+
+| 平台 | 当前实现 | 重要限制 |
+|---|---|---|
+| macOS | Electron `setContentProtection()` + 跨空间置顶 | ScreenCaptureKit 捕获可能绕过；必须逐软件实测 |
+| Windows | Electron `setContentProtection()` | 系统截图、直接窗口捕获等路径可能绕过；跨虚拟桌面未实现 |
+| Linux | 普通浮层 | 当前不提供录屏保护 |
+
+物理采集卡、摄像头拍屏和其他硬件级采集不受窗口 API 保护。
+
+## 安全与隐私
+
+- 无账号、无云同步、无联网业务；讲稿保存在本机 `localStorage`。
+- 渲染进程启用 `contextIsolation`，不启用 `nodeIntegration`。
+- 录屏保护可关闭；关闭时界面会明确警告。
+- `dist/` 被 Git 忽略，本地约 200 MB 的 App 不提交进仓库。
+
+更多资料：`docs/DISTRIBUTION.md`、`docs/VERIFICATION.md`、`docs/PLATFORM-FEASIBILITY.md`。
 
 ## 变更记录
 
 | 日期 | 变更内容 |
 |------|---------|
-| 2026-07-30 | 完整功能版：透明浮层 + 永远置顶 + 录屏不可见 + 滚动播放 + 速度/字号/字色/透明度/镜像；4/4 自动化测试通过；改名为 StealthTextCC 避免与 CodeX 开发的同名 App 冲突；dist/mac-arm64/StealthTextCC.app 打包成功 |
+| 2026-08-09 | 更新 Electron 43 三平台构建、两个独立 Mac 架构包、GitHub artifacts/Release 与本地 arm64 强制验收；区分 Gatekeeper、签名/公证和录屏保护，并补充 ScreenCaptureKit 限制 |
+| 2026-07-30 | 完整功能版首次实现并完成 4/4 自动化测试；改名为 StealthTextCC 以避免与另一 App 冲突 |

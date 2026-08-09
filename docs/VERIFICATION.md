@@ -1,119 +1,103 @@
-# 验证清单 — 已经验证 / 仍需人工
+> 目的：定义每轮修改、CI 和发布前必须通过的验收。　目标读者：维护者 / 发布试用版的人。　如何阅读：先根据修改类型选择流程；任一强制项失败时停止提交和推送。
 
-> 目的：明确「哪些已经做过自动 / 手动验证、哪些还需要人工跑、怎么跑」。　目标读者：任何人接手 / 任何改动后要回归的人。　如何阅读：先看「已通过的 4 项」，再按需看「仍需人工的部分」。
+# 验证清单
 
----
+## 修改类型与强制流程
 
-## ✅ 已通过的 4 项自动化测试
+代码、依赖、运行逻辑或构建配置修改：
+
+```text
+修改一项
+→ npm test
+→ npm run build:mac:arm64
+→ npm run verify:mac:arm64
+→ 启动打包后的 App
+→ 独立 commit
+→ push
+→ 检查 GitHub Actions
+```
+
+纯文档修改只需检查目标 diff 和 `git diff --check`；如果同时包含代码或配置修改，仍执行完整流程。
+
+## 自动化测试
 
 ```bash
 npm test
 ```
 
-| 测试 | 验证什么 | 实现方式 |
-|---|---|---|
-| 启动 + 渲染 + preload 桥接 | Electron 进程能起、index.html 加载、`<title>` 正确、preload 暴露的 7 个 API 都在 | spawn Electron + CDP `Runtime.evaluate` |
-| 编辑 → 播放 → 滚到底自动暂停 | Space 切到 play、按钮文字变「暂停」、scrollTop 增长、滚到底后 mode 自动回 edit | CDP `Input.dispatchKeyEvent` + 轮询 Runtime.evaluate |
-| App 自身截图能看到讲稿（保护不误伤自身） | 写入讲稿后 `Page.captureScreenshot` 拿到非空 PNG | CDP `Page.captureScreenshot` |
-| localStorage 持久化讲稿 | 写入 → 关闭 → 重启 → 读回一致 | 两轮 Electron 进程 + `--user-data-dir` 隔离 |
+| 测试 | 覆盖 |
+|---|---|
+| 启动 + 渲染 + preload 桥接 | Electron 启动、页面标题、隔离的 preload API |
+| 编辑 → 播放 → 滚到底自动暂停 | 保证可滚动内容、播放状态、真实循环到末尾后暂停 |
+| App 自身截图 | 渲染内容不被保护逻辑误伤 |
+| `localStorage` 持久化 | 写入、通过 App 正常退出、重启后读回 |
 
-测试文件：`tests/screen-protection.test.mjs`
+测试使用独立临时 user-data 目录和调试端口；失败输出会在 CI annotation 中保留 Electron 日志。
 
-> **修复过的坑**：默认 SIGKILL 杀子进程会让 Chromium localStorage 丢失，必须 SIGTERM 等 2 秒；端口被旧进程占用导致 CDP 拿到错误 page，必须每个测试用独立端口 + 独立 user-data-dir。
+## 本地 arm64 App 强制验收
 
----
-
-## ⚠️ 仍需人工验证：录屏可见性
-
-> **为什么自动化跑不了**：自动测试的 Electron 子进程**没有 macOS 屏幕录制权限**（macOS 每个进程单独授权），所以 `screencapture` / `desktopCapturer` 都拿不到外部视角。
-> **必须用户在 Mac 上人工跑一次**。
-
-### 步骤
-
-1. 启动 StealthTextCC（开发或打包版都行）：
-   ```bash
-   cd /Users/Zhuanz/claude/stealthtextcc
-   npm start
-   # 或者：open dist/mac-arm64/StealthTextCC.app
-   ```
-
-2. 在浮层里输入一段独特文字便于辨识（如「录屏验证标记 ABC」）
-
-3. 打开 **QuickTime Player** → 文件 → 新建屏幕录制 → 点红钮
-
-4. macOS 会弹一个选择窗口让你选区域——**包含提词器的那块区域**
-
-5. 开始录 5 秒后停，保存到桌面
-
-6. 回放 `~/Desktop/无标题.mov`
-
-7. **期望看到**：提词器所在的矩形区域是**黑屏**（或纯色），其他屏幕内容（dock、菜单栏、其他 App）正常
-
-### 不同录屏工具验证矩阵
-
-跑过前面 QuickTime 验证后，建议每种都至少跑一次：
-
-| 工具 | 路径 | 验证方法 |
-|---|---|---|
-| OBS | 来源 → 显示器捕获 → 开始录制 | 录 10 秒，回放预览 |
-| Zoom | 开会 → 共享屏幕 → 选整个屏幕 | 自己开个测试会议，发给另一台机器看 |
-| 腾讯会议 | 同上 | 同上 |
-| Keynote | 幻灯片播放 → 录屏（如果有） | 录后看回放 |
-| 录屏插件（Loom 等） | 浏览器插件录制 | 看回放 |
-
-每一项都期望「看不到提词器」。
-
----
-
-## ⚠️ 仍需人工验证：键盘 / 鼠标交互
-
-CDP `Input.dispatchKeyEvent` 模拟的是合成键，跟真实键盘输入略有差异（焦点、修饰键捕获等）。建议人工跑一次：
-
-- [ ] **Space 播放 / 暂停**（编辑态和播放态都试）
-- [ ] **↑ ↓ 速度** 调整（看滑块动）
-- [ ] **← → 字号** 调整（看文字大小变）
-- [ ] **Home 回到开头**（播放时）
-- [ ] **Esc 暂停**（播放时）
-- [ ] 拖标题栏移位置
-- [ ] 拖右下角改尺寸（试最小 320×160）
-- [ ] 点 ⚙ 打开设置抽屉
-- [ ] 点 🪞 镜像翻转（文字水平镜像）
-- [ ] 点 ⏮ 复位
-- [ ] 点 🗑 清空（弹确认框）
-- [ ] ⌘⌥P 全局切置顶
-- [ ] ⌘⌥V 全局显隐
-- [ ] 关闭再开：讲稿和设置都恢复
-- [ ] 切桌面空间：浮层仍在
-- [ ] 进入其他 App 全屏（Keynote）：浮层仍可见（靠 `visibleOnFullScreen: true`）
-
----
-
-## ⚠️ 仍需人工验证：异常路径
-
-- [ ] 把窗口拖到屏幕最边，能否被 `clampToDisplay` 拉回
-- [ ] 拔掉一个外接显示器，窗口回到主屏
-- [ ] 缩窗口到最小尺寸 320×160，再继续拖应被卡住
-- [ ] 关闭最后一个窗口（macOS 是否退出 App）—— 我们设计成退出
-- [ ] 字体选极端小字号（如 14px）+ 长讲稿，滚动是否平滑
-- [ ] 速度拉满 200 px/秒 + 短讲稿，会先滚到底自动停
-
----
-
-## 自动化覆盖率现状
-
-```
-✅ 4/4 单元 / 集成测试通过（启动、播放、自身截图、localStorage）
-⚠️ 1 个关键功能（外部录屏保护）必须人工验证（macOS 权限沙箱限制）
-⚠️ 键盘 / 鼠标交互的细节差异 CDP 模拟不到，必须人工手感
-⚠️ 多显示器 / 屏幕边缘 clamp 等只能人工真机验证
+```bash
+npm run build:mac:arm64
+npm run verify:mac:arm64
 ```
 
-**覆盖率大致 70%**：核心路径 + 数据持久化 + 自身截图保护已自动化；外部录屏保护 + 边角 case 留给用户。
+预期产物：`dist/mac-arm64/StealthTextCC.app`。
 
----
+校验脚本必须确认：
+
+- App 修改时间属于当前轮次。
+- `Contents/MacOS/StealthTextCC` 是纯 arm64。
+- `Info.plist` / App 版本等于当前 `package.json`。
+- `app.asar` 内 `main.js` 的 SHA-256 等于当前源码。
+
+随后实际启动打包后的 App，至少检查：
+
+- 窗口正常显示，页面来自 App 内 `app.asar/index.html`。
+- 置顶、拖动、缩放、播放/暂停和自动滚动。
+- 设置抽屉、字号/速度/字色、镜像。
+- 关闭后重启能读取本地讲稿。
+
+任一项失败，不提交、不推送；修复后从测试重新开始。
+
+## 录屏保护人工验证
+
+自动化不能证明外部录屏软件一定看不到窗口。修改 `setContentProtection()` 相关代码或升级 Electron 后：
+
+1. 启动本轮打包的 arm64 App。
+2. 输入明显的测试文字。
+3. 用目标录屏/会议软件选定实际会用的捕获源。
+4. 同时录到 StealthTextCC 和一个普通窗口至少 5 秒。
+5. 回放确认 StealthTextCC 是否被排除，记录软件版本、macOS 版本和捕获源。
+
+QuickTime、OBS、会议软件、浏览器录屏插件应分别验证，不能互相推断。ScreenCaptureKit 软件可能仍能捕获受保护窗口；若能看到，属于已知技术边界，不得继续宣称该组合受保护。
+
+## GitHub Actions 验收
+
+普通 push 应有两个构建 job 全绿，并产生：
+
+```text
+StealthTextCC-<version>-mac-arm64.zip
+StealthTextCC-<version>-mac-x64.zip
+StealthTextCC-<version>-win-x64.zip
+```
+
+`v*` 标签还应成功创建 Release并上传同名三个 ZIP。三个文件必须来自同一 commit。
+
+## 发布前清单
+
+- [ ] `npm test` 4/4 通过
+- [ ] `npm audit` 无 high / critical
+- [ ] 本地 arm64 App 重新生成并通过脚本校验
+- [ ] 本地 App 实际启动及主要交互通过
+- [ ] 目标录屏软件完成 5 秒人工验证
+- [ ] main 分支 Actions 两个 job 全绿、三个 artifacts 齐全
+- [ ] tag Release 三个 ZIP 齐全
+- [ ] 从 Release 下载 arm64 ZIP，解压、校验并启动
+- [ ] Intel 与 Windows 在朋友真机确认前标记 prerelease
 
 ## 变更记录
 
 | 日期 | 变更内容 |
 |------|---------|
-| 2026-07-30 | 初版：4/4 自动化测试 + 仍需人工验证清单 + 覆盖率说明 |
+| 2026-08-09 | 增加每轮本地 arm64 构建、架构/源码/时间校验、启动冒烟、CI 三产物和 Release 回下载验收；删除不存在的全局快捷键检查 |
+| 2026-07-30 | 初版：4 项自动化测试、人工录屏和交互清单 |
