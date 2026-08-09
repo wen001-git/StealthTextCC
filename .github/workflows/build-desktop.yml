@@ -117,9 +117,15 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           args=("$GITHUB_REF_NAME" dist/*.zip --title "$GITHUB_REF_NAME" --generate-notes)
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then
             args+=(--prerelease)
           fi
-          gh release create "${args[@]}"
+          if ! output=$(gh release create --repo "$GH_REPO" "${args[@]}" 2>&1); then
+            output=${output//$'\n'/'%0A'}
+            echo "::error title=GitHub Release creation failed::$output"
+            exit 1
+          fi
+          echo "$output"
