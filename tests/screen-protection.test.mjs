@@ -12,14 +12,17 @@
 // 外部视角的「录屏时不可见」必须人工跑：见 README.md 的「录屏验证」小节
 // 需要 macOS 系统授权 Terminal / Electron 「屏幕录制」权限后跑 `screencapture`。
 
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
 const ROOT = resolve(import.meta.dirname, '..');
-const ELECTRON_BIN = resolve(ROOT, 'node_modules/.bin/electron');
+const require = createRequire(import.meta.url);
+const ELECTRON_BIN = require('electron');
 const VERIFY_DIR = resolve(ROOT, 'docs/verification-2026-07-30');
 
 let electronProc = null;
@@ -30,16 +33,26 @@ function pickPort() {
   return 9333 + (Math.floor(Math.random() * 8));
 }
 
-async function killAllElectron() {
-  // 兜底：杀掉任何跑在工程目录下的 Electron
-  const { execSync } = await import('node:child_process');
-  try { execSync('pkill -f "node_modules/electron/dist/Electron.app/Contents/MacOS/Electron \\." || true'); } catch { /* ignore */ }
-  await new Promise(r => setTimeout(r, 500));
+function testDataDir(name) {
+  return join(tmpdir(), `${name}-${Date.now()}`);
+}
+
+function waitForExit(child, timeoutMs) {
+  if (child.exitCode !== null) return Promise.resolve(true);
+  return new Promise((resolveExit) => {
+    let settled = false;
+    const finish = (exited) => {
+      if (settled) return;
+      settled = true;
+      resolveExit(exited);
+    };
+    child.once('exit', () => finish(true));
+    setTimeout(() => finish(child.exitCode !== null), timeoutMs);
+  });
 }
 
 async function startElectron({ userDataDir } = {}) {
   await mkdir(VERIFY_DIR, { recursive: true });
-  await killAllElectron();
   const port = pickPort();
   currentPort = port;
   const args = [
@@ -92,32 +105,32 @@ async function cdpCall(page, method, params = {}) {
 }
 
 async function stopElectron({ graceful = true } = {}) {
-  if (electronProc && !electronProc.killed) {
+  const child = electronProc;
+  electronProc = null;
+  if (child && child.exitCode === null) {
     if (graceful) {
-      // 先 SIGTERM 让 Chromium flush localStorage，再 SIGKILL
-      try {
-        electronProc.kill('SIGTERM');
-        // 等 2 秒让进程清理
-        await new Promise((res) => {
-          let done = false;
-          electronProc.on('exit', () => { if (!done) { done = true; res(); } });
-          setTimeout(() => { if (!done) { done = true; res(); } }, 2000);
-        });
-      } catch { /* ignore */ }
-      if (!electronProc.killed) {
-        try { electronProc.kill('SIGKILL'); } catch { /* ignore */ }
+      try { child.kill('SIGTERM'); } catch { /* ignore */ }
+      if (await waitForExit(child, 2000)) {
+        currentPort = 0;
+        return;
       }
-    } else {
-      try { electronProc.kill('SIGKILL'); } catch { /* ignore */ }
+    }
+    try {
+      if (process.platform === 'win32') {
+        execFileSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+      } else {
+        child.kill('SIGKILL');
+      }
+    } catch { /* ignore */ }
+    if (child.exitCode === null) {
+      await waitForExit(child, 1000);
     }
   }
-  electronProc = null;
-  await killAllElectron();
   currentPort = 0;
 }
 
 test('启动 + 渲染 + preload 桥接', async () => {
-  const { page } = await startElectron({ userDataDir: `/tmp/stealthtext-test-1-${Date.now()}` });
+  const { page } = await startElectron({ userDataDir: testDataDir('stealthtext-test-1') });
   try {
     assert.match(page.url, /index\.html$/);
     // 等页面脚本跑完
@@ -165,7 +178,7 @@ test('启动 + 渲染 + preload 桥接', async () => {
 });
 
 test('编辑 → 播放 → 滚到底自动暂停', async () => {
-  const { page } = await startElectron({ userDataDir: `/tmp/stealthtext-test-2-${Date.now()}` });
+  const { page } = await startElectron({ userDataDir: testDataDir('stealthtext-test-2') });
   try {
     // 设置一个很短的讲稿 + 慢速，确保滚到底
     await cdpCall(page, 'Runtime.evaluate', {
@@ -226,7 +239,7 @@ test('编辑 → 播放 → 滚到底自动暂停', async () => {
 });
 
 test('App 自身截图能看到讲稿（保护不误伤自身）', async () => {
-  const { page } = await startElectron({ userDataDir: `/tmp/stealthtext-test-3-${Date.now()}` });
+  const { page } = await startElectron({ userDataDir: testDataDir('stealthtext-test-3') });
   try {
     await cdpCall(page, 'Runtime.evaluate', {
       expression: `(() => {
@@ -256,7 +269,7 @@ test('App 自身截图能看到讲稿（保护不误伤自身）', async () => {
 
 test('localStorage 持久化讲稿', async () => {
   // 用一个固定的 user-data-dir 跨两次启动
-  const fixedDir = `/tmp/stealthtext-persist-${Date.now()}`;
+  const fixedDir = testDataDir('stealthtext-persist');
   // 先用 Runtime.evaluate 写入 unique（必须在 init 写入默认文本之后）
   const { page } = await startElectron({ userDataDir: fixedDir });
   // 等 init 跑完
