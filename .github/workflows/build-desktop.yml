@@ -1,0 +1,125 @@
+name: Build Desktop
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    runs-on: macos-14
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build macOS arm64 and Intel ZIPs
+        run: npm run dist:mac:all
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Verify macOS apps and ZIPs
+        run: |
+          npm run verify:mac:arm64
+          npm run verify:mac:x64
+          unzip -t dist/StealthTextCC-*-mac-arm64.zip >/dev/null
+          unzip -t dist/StealthTextCC-*-mac-x64.zip >/dev/null
+
+      - name: Upload macOS arm64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: StealthTextCC-mac-arm64
+          path: dist/StealthTextCC-*-mac-arm64.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload macOS Intel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: StealthTextCC-mac-x64
+          path: dist/StealthTextCC-*-mac-x64.zip
+          if-no-files-found: error
+          retention-days: 30
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build Windows x64 ZIP
+        run: npm run dist:win:x64
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Verify Windows ZIP
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $zip = "dist/StealthTextCC-$version-win-x64.zip"
+          if (-not (Test-Path $zip)) { throw "Missing artifact: $zip" }
+          $entries = tar -tf $zip
+          if ($entries -notcontains 'StealthTextCC.exe') { throw 'ZIP does not contain StealthTextCC.exe' }
+
+      - name: Upload Windows x64 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: StealthTextCC-win-x64
+          path: dist/StealthTextCC-*-win-x64.zip
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v5
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          args=("$GITHUB_REF_NAME" dist/*.zip --title "$GITHUB_REF_NAME" --generate-notes)
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            args+=(--prerelease)
+          fi
+          gh release create "${args[@]}"
