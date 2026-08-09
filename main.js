@@ -4,8 +4,8 @@
 //   macOS : BrowserWindow.setContentProtection(true)              ← 完整
 //           NSWindow.sharingType = .none
 //           对 QuickTime / OBS / Zoom 共享屏幕 / Keynote 录屏均有效
-//   Windows: SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE) ← 半防护
-//           通过 koffi 调 user32.dll
+//   Windows: BrowserWindow.setContentProtection(true)              ← 半防护
+//           Electron 内部调用 WDA_EXCLUDEFROMCAPTURE
 //           对 OBS / Xbox Game Bar / Zoom / PowerPoint 录屏有效
 //           对 PrintWindow 类（Snip & Sketch、Bandicam 某些模式）无效 —— 这是 Win API 设计局限
 //   Linux : 无对应保护，仅作为普通浮层
@@ -22,49 +22,11 @@ const IS_WIN = process.platform === 'win32';
 const IS_LINUX = process.platform === 'linux';
 const IS_DEV = !app.isPackaged;
 
-// ----- Windows 录屏保护：koffi 桥接 user32.dll -----
-//   只在 Windows 上 require。koffi 是 mac/linux/win 通用 FFI，但只在 win 分支调用，
-//   失败兜底返回 false（保护关闭），UI 用 platform 提示用户限制。
-let koffiSetAffinity = null;
-let WDA_EXCLUDEFROMCAPTURE = 0x11; // 官方常量（Win10 1607+）
-let WDA_NONE = 0x00;
-let winAffinityLogged = false;
-if (IS_WIN) {
-  try {
-    // 仅在 win 上 require，mac/linux 启动时不会尝试加载
-    const koffi = require('koffi');
-    const user32 = koffi.load('user32.dll');
-    koffiSetAffinity = user32.func(
-      'int __stdcall SetWindowDisplayAffinity(void* hWnd, uint32 dwAffinity)'
-    );
-  } catch (e) {
-    console.error('[Win] koffi/user32 加载失败，录屏保护不可用:', e.message);
-    koffiSetAffinity = null;
-  }
-}
-
 function setScreenCaptureProtection(window, enabled) {
   if (!window) return false;
-  if (IS_MAC) {
+  if (IS_MAC || IS_WIN) {
     try { window.setContentProtection(enabled); return true; }
-    catch (e) { console.error('[Mac] setContentProtection 失败:', e); return false; }
-  }
-  if (IS_WIN) {
-    if (!koffiSetAffinity) {
-      if (!winAffinityLogged) {
-        console.warn('[Win] SetWindowDisplayAffinity 不可用 —— koffi 加载失败');
-        winAffinityLogged = true;
-      }
-      return false;
-    }
-    try {
-      const hwnd = window.getNativeWindowHandle(); // Buffer (HWND on Windows)
-      const r = koffiSetAffinity(hwnd, enabled ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE);
-      return r !== 0;
-    } catch (e) {
-      console.error('[Win] SetWindowDisplayAffinity 失败:', e);
-      return false;
-    }
+    catch (e) { console.error(`[${IS_MAC ? 'Mac' : 'Win'}] setContentProtection 失败:`, e); return false; }
   }
   // Linux：当前无保护，未来如要支持可用 X11 属性 + 合成器扩展
   return false;
