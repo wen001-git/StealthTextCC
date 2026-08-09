@@ -29,10 +29,10 @@ jobs:
         run: npm ci
 
       - name: Run tests
-        run: npm test
+        run: node scripts/run-ci-command.mjs test
 
       - name: Build macOS arm64 and Intel ZIPs
-        run: npm run dist:mac:all
+        run: node scripts/run-ci-command.mjs dist:mac:all
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
@@ -76,10 +76,10 @@ jobs:
         run: npm ci
 
       - name: Run tests
-        run: npm test
+        run: node scripts/run-ci-command.mjs test
 
       - name: Build Windows x64 ZIP
-        run: npm run dist:win:x64
+        run: node scripts/run-ci-command.mjs dist:win:x64
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 

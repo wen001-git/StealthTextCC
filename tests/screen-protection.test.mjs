@@ -69,6 +69,10 @@ async function startElectron({ userDataDir } = {}) {
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: false,
   });
+  let startupStdout = '';
+  let startupStderr = '';
+  electronProc.stdout.on('data', (chunk) => { startupStdout += chunk.toString(); });
+  electronProc.stderr.on('data', (chunk) => { startupStderr += chunk.toString(); });
   for (let i = 0; i < 40; i++) {
     await new Promise(r => setTimeout(r, 200));
     try {
@@ -82,8 +86,13 @@ async function startElectron({ userDataDir } = {}) {
         }
       }
     } catch { /* 还在起 */ }
+    if (electronProc.exitCode !== null) break;
   }
-  throw new Error(`Electron did not start in 8s on port ${port}`);
+  throw new Error([
+    `Electron did not start in 8s on port ${port}; exitCode=${electronProc.exitCode}`,
+    startupStdout.trim() && `stdout:\n${startupStdout.trim()}`,
+    startupStderr.trim() && `stderr:\n${startupStderr.trim()}`,
+  ].filter(Boolean).join('\n'));
 }
 
 async function cdpCall(page, method, params = {}) {
