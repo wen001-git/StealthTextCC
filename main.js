@@ -1,13 +1,10 @@
 // main.js — StealthTextCC 主进程（macOS / Windows / Linux 通用）
 //
-// 录屏隐身能力按平台分：
-//   macOS : BrowserWindow.setContentProtection(true)              ← 完整
-//           NSWindow.sharingType = .none
-//           对 QuickTime / OBS / Zoom 共享屏幕 / Keynote 录屏均有效
-//   Windows: BrowserWindow.setContentProtection(true)              ← 半防护
-//           Electron 内部调用 WDA_EXCLUDEFROMCAPTURE
-//           对 OBS / Xbox Game Bar / Zoom / PowerPoint 录屏有效
-//           对 PrintWindow 类（Snip & Sketch、Bandicam 某些模式）无效 —— 这是 Win API 设计局限
+// 录屏保护能力按平台分：
+//   macOS : BrowserWindow.setContentProtection(true) 使用 NSWindow sharingType。
+//           Electron 明确提示：采用 ScreenCaptureKit 的新式捕获仍可能抓到窗口，必须逐软件实测。
+//   Windows: BrowserWindow.setContentProtection(true) 使用 WDA_EXCLUDEFROMCAPTURE。
+//           常见录屏可受保护，但系统截图、PrintWindow 或其他捕获路径可能绕过。
 //   Linux : 无对应保护，仅作为普通浮层
 //
 // 全部 UI 行为在 index.html（渲染进程）；本文件只做窗口/菜单/IPC/热键/分平台保护。
@@ -143,10 +140,10 @@ function buildMenu() {
 
   // 录屏保护菜单的 tooltip —— 跨平台如实说明限制
   const captureProtectionLabel = IS_WIN
-    ? '录屏时不可见（OBS / Game Bar / 视频会议有效；Win+Shift+S、Snip & Sketch 等可能绕过）'
+    ? '录屏保护（常见录屏有效；系统截图等可能绕过）'
     : IS_MAC
-      ? '录屏时对其他 App 不可见'
-      : '录屏时不可见（Linux 暂不支持保护）';
+      ? '录屏保护（ScreenCaptureKit 软件需实测）'
+      : '录屏保护（Linux 暂不支持）';
 
   const template = [
     ...(IS_MAC ? [{
@@ -306,11 +303,10 @@ ipcMain.on('get-platform', (e) => {
   e.returnValue = {
     platform: process.platform,
     captureProtectionLabel: IS_WIN
-      ? '录屏时不可见（OBS / Game Bar / 视频会议有效；Win+Shift+S、Snip & Sketch 等可能绕过）'
+      ? '录屏保护（常见录屏有效；系统截图等可能绕过）'
       : IS_MAC
-        ? '录屏时对其他 App 不可见'
-        : '录屏时不可见（Linux 暂不支持保护）',
-    captureProtectionHalfEffective: IS_WIN,
+        ? '录屏保护（ScreenCaptureKit 软件需实测）'
+        : '录屏保护（Linux 暂不支持）',
   };
 });
 

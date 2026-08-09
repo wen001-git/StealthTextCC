@@ -340,7 +340,7 @@
            spellcheck="false"
            role="textbox"
            aria-multiline="true"
-           data-placeholder="在此粘贴或输入讲稿。点击空白处开始输入。&#10;&#10;播放时正文自动滚动，提词器只显示给你看，录屏里看不到。&#10;&#10;快捷键：↑↓ 调速 · ←→ 字号 · ⌘A 全选"></div>
+           data-placeholder="在此粘贴或输入讲稿。点击空白处开始输入。&#10;&#10;播放时正文自动滚动。可启用录屏保护；分享前请用实际录屏软件验证。&#10;&#10;快捷键：↑↓ 调速 · ←→ 字号 · ⌘A 全选"></div>
     </div>
 
     <!-- 设置面板 -->
@@ -421,7 +421,7 @@
       mirror: false,
       alwaysOnTop: true,
       captureProtected: true,
-      captureHalfEffective: false,
+      capturePlatform: 'unknown',
       raf: null,
       lastT: 0,
     };
@@ -538,11 +538,12 @@
       const ph = document.getElementById('privacy-hint');
       if (!ph) return;
       if (state.captureProtected) {
-        if (state.captureHalfEffective) {
-          ph.textContent = '⚠ Windows 录屏保护已开启（部分有效）—— 对 OBS / Game Bar / 视频会议录屏有效；' +
-                           'Win+Shift+S、Snip & Sketch、Bandicam 某些模式可能绕过';
+        if (state.capturePlatform === 'win32') {
+          ph.textContent = '⚠ Windows 录屏保护已开启 —— 常见录屏可受保护；系统截图和其他捕获路径可能绕过，请先实测';
+        } else if (state.capturePlatform === 'darwin') {
+          ph.textContent = '⚠ macOS 录屏保护已开启 —— ScreenCaptureKit 软件仍可能捕获窗口，请用实际录屏软件验证';
         } else {
-          ph.textContent = '✓ macOS 录屏保护已开启 —— 对 QuickTime / OBS / 视频会议共享屏幕均有效';
+          ph.textContent = '⚠ 当前平台不支持录屏保护 —— 提词器可能出现在录屏或共享屏幕中';
         }
       } else {
         ph.textContent = '⚠ 录屏保护已关闭 —— 录屏/共享屏幕时其他 App 可以看到提词器内容';
@@ -862,7 +863,7 @@
         const ph = document.getElementById('privacy-hint');
         if (ph && window.api && window.api.getPlatform) {
           const info = window.api.getPlatform() || {};
-          state.captureHalfEffective = info.captureProtectionHalfEffective || false;
+          state.capturePlatform = info.platform || 'unknown';
           if (info.platform === 'darwin') {
             ph.classList.add('mac-strong');
           } else if (info.platform === 'win32') {
