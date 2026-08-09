@@ -224,7 +224,13 @@ function buildMenu() {
           label: '显示/隐藏窗口',
           click: () => {
             if (!win) return;
-            if (win.isVisible()) win.hide(); else { win.show(); win.focus(); }
+            if (IS_MAC) {
+              if (win.isMinimized()) { win.restore(); win.focus(); }
+              else if (win.isVisible()) win.minimize();
+              else { win.show(); win.focus(); }
+            } else {
+              if (win.isVisible()) win.hide(); else { win.show(); win.focus(); }
+            }
           },
         },
         {
@@ -300,10 +306,18 @@ ipcMain.on('toggle-capture-protection', () => {
 ipcMain.on('get-capture-protection', (e) => {
   e.returnValue = contentProtected;
 });
-// 显示/隐藏窗口
+// 隐藏/恢复窗口
+// macOS：最小化到 Dock（用户可点 Dock 图标恢复）
+// Windows/Linux：隐藏窗口（任务栏图标可恢复）
 ipcMain.on('toggle-visible', () => {
   if (!win) return;
-  if (win.isVisible()) win.hide(); else { win.show(); win.focus(); }
+  if (IS_MAC) {
+    if (win.isMinimized()) { win.restore(); win.focus(); }
+    else if (win.isVisible()) win.minimize();
+    else { win.show(); win.focus(); }
+  } else {
+    if (win.isVisible()) win.hide(); else { win.show(); win.focus(); }
+  }
 });
 ipcMain.on('quit', () => {
   // 正常退出；若 2 秒内没完成（macOS 某些情况下会出现），强制终止进程
@@ -363,8 +377,9 @@ app.on('window-all-closed', () => {
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
-  } else if (win && !win.isVisible()) {
-    win.show();
+  } else if (win) {
+    if (win.isMinimized()) win.restore();
+    if (!win.isVisible()) win.show();
     win.focus();
   }
 });
